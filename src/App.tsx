@@ -75,7 +75,24 @@ export function App() {
     <div className="app">
       <nav className="nav">
         <div className="rail-head">
-          <div className="eyebrow">BP Tracker</div>
+          {/* The favicon's gauge, inlined rather than loaded from /favicon.svg
+              so it follows the in-app theme toggle through the tokens instead
+              of the OS colour scheme, which is all an <img> would see. */}
+          <div className="rail-brand">
+            <svg
+              className="rail-mark"
+              viewBox="0 0 32 32"
+              fill="none"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path stroke="var(--dia-line)" d="M6.031 23.849A11 11 0 1 1 26.625 16.353" />
+              <path stroke="var(--tone-high-dot)" d="M26.625 16.353A11 11 0 0 1 25.969 23.849" />
+              <path stroke="var(--sys-line)" d="M16 19.2 21.193 10.889" />
+              <circle cx="16" cy="19.2" r="2.9" fill="var(--sys-line)" />
+            </svg>
+            <div className="eyebrow">BP Tracker</div>
+          </div>
           <div className="rail-title">Personal log</div>
           <div className="rail-badge">
             {standard.format.flag} {standard.shortName} · ≥{goal.systolic}/{goal.diastolic}
