@@ -1,7 +1,7 @@
 import Dexie from 'dexie'
 import { getDatabase, currentUserId, BPDatabase, databaseNameFor, LOCAL_USER_ID } from './db'
 import type { StoredSession } from './db'
-import { ensureProfile, pendingSessions } from './repository'
+import { ensureProfile, onLocalWrite, pendingSessions } from './repository'
 import { fromProfileRow, fromSessionRow, toProfileRow, toSessionRow } from './rows'
 import type { ProfileRow, SessionRow } from './rows'
 import { isSyncConfigured, supabase } from './supabase'
@@ -200,4 +200,77 @@ export async function adoptLocalHistory(userId: string): Promise<number> {
 
   await writeMeta(ADOPTED, new Date().toISOString())
   return adopted
+}
+
+/**
+ * Pushes shortly after a local change, rather than waiting for the next load.
+ *
+ * Debounced because a sitting is saved a row at a time — three readings a
+ * minute apart are three writes to the same session, and each one would
+ * otherwise be its own round trip.
+ *
+ * A failure is swallowed on purpose. The rows stay `pending`, so the next
+ * trigger retries them; surfacing a network error here would put a warning on
+ * screen for something the app is already handling.
+ */
+const DEBOUNCE_MS = 1500
+
+let timer: ReturnType<typeof setTimeout> | null = null
+let running = false
+let repeat = false
+
+async function run(): Promise<void> {
+  if (running) {
+    // A write landed mid-flight. Go round again once this pass finishes, or it
+    // would sit unpushed until the next trigger.
+    repeat = true
+    return
+  }
+  running = true
+  try {
+    await syncNow()
+  } catch {
+    // Offline, or the project is paused. Nothing to do: the rows are pending.
+  } finally {
+    running = false
+    if (repeat) {
+      repeat = false
+      scheduleSync()
+    }
+  }
+}
+
+export function scheduleSync(): void {
+  if (!isSyncConfigured) return
+  if (timer) clearTimeout(timer)
+  timer = setTimeout(() => {
+    timer = null
+    void run()
+  }, DEBOUNCE_MS)
+}
+
+/**
+ * Starts reacting to local writes, reconnection, and the tab coming back.
+ *
+ * The last two matter as much as the first: a reading saved on a train is
+ * pending until something notices the network returned.
+ */
+export function startAutoSync(): () => void {
+  if (!isSyncConfigured) return () => {}
+
+  const stopWrites = onLocalWrite(scheduleSync)
+  const onOnline = () => scheduleSync()
+  const onVisible = () => {
+    if (document.visibilityState === 'visible') scheduleSync()
+  }
+
+  window.addEventListener('online', onOnline)
+  document.addEventListener('visibilitychange', onVisible)
+
+  return () => {
+    stopWrites()
+    window.removeEventListener('online', onOnline)
+    document.removeEventListener('visibilitychange', onVisible)
+    if (timer) clearTimeout(timer)
+  }
 }

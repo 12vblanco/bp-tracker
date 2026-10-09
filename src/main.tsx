@@ -6,7 +6,7 @@ import { App } from './App'
 import { openDatabase, LOCAL_USER_ID } from './data/db'
 import { ensureProfile } from './data/repository'
 import { currentAccount, onAccountChange } from './data/auth'
-import { adoptLocalHistory, syncNow } from './data/sync'
+import { adoptLocalHistory, startAutoSync, syncNow } from './data/sync'
 
 /**
  * Boot order matters and is load-bearing.
@@ -43,7 +43,12 @@ async function boot() {
 
   // After the first paint, never before it. A dead connection must cost nothing
   // but a late sync, and a failure here is not the user's problem to see.
-  if (account) void syncNow().catch(() => {})
+  if (account) {
+    void syncNow().catch(() => {})
+    // From here on, a saved reading reaches the server without waiting for the
+    // next load, and a reconnection retries whatever is still pending.
+    startAutoSync()
+  }
 
   // Signing in or out changes which database is the right one, and that is
   // decided in boot(). Reloading is how that decision gets made again — only

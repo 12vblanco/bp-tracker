@@ -14,6 +14,27 @@ import type { ParsedBackup } from './restore'
  * component being touched.
  */
 
+/**
+ * Fires after any local write.
+ *
+ * The sync layer subscribes to this rather than being called from here:
+ * `sync.ts` already imports this module, so importing it back would be a
+ * cycle. Screens stay unaware that sync exists at all.
+ */
+type WriteListener = () => void
+const writeListeners = new Set<WriteListener>()
+
+export function onLocalWrite(listener: WriteListener): () => void {
+  writeListeners.add(listener)
+  return () => {
+    writeListeners.delete(listener)
+  }
+}
+
+function announceWrite(): void {
+  for (const listener of writeListeners) listener()
+}
+
 export interface SessionInput {
   takenAt: Date
   period: Period
@@ -79,6 +100,7 @@ export async function getSession(id: string): Promise<Session | null> {
 export async function createSession(input: SessionInput): Promise<Session> {
   const session = toSession(input, crypto.randomUUID(), currentUserId())
   await getDatabase().sessions.put({ ...session, syncState: 'pending' })
+  announceWrite()
   return session
 }
 
@@ -88,6 +110,7 @@ export async function updateSession(id: string, input: SessionInput): Promise<Se
 
   const session = toSession(input, id, existing.userId)
   await getDatabase().sessions.put({ ...session, syncState: 'pending' })
+  announceWrite()
   return session
 }
 
@@ -105,6 +128,7 @@ export async function deleteSession(id: string): Promise<void> {
     updatedAt: new Date().toISOString(),
     syncState: 'deleted',
   })
+  announceWrite()
 }
 
 function defaultProfile(userId: string): ProfileRecord {
@@ -158,6 +182,7 @@ export async function saveProfile(patch: ProfilePatch): Promise<ProfileRecord> {
     syncState: 'pending',
   }
   await getDatabase().profile.put(updated)
+  announceWrite()
   return updated
 }
 
@@ -254,6 +279,7 @@ export async function importBackup(
     }
   })
 
+  announceWrite()
   return { added, updated, superseded, rejected: parsed.rejected, profileAdopted }
 }
 
