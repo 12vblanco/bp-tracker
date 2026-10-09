@@ -6,6 +6,8 @@ import { History } from './screens/History'
 import { Report } from './screens/Report'
 import { Settings } from './screens/Settings'
 import { useProfile, useSessions } from './data/hooks'
+import { currentUserId, LOCAL_USER_ID } from './data/db'
+import { isSyncConfigured } from './data/supabase'
 import { useTheme } from './data/useTheme'
 import { formatDate } from './domain/format'
 import { sessionsToCsv, downloadFile } from './data/export'
@@ -71,6 +73,15 @@ export function App() {
   )
   const goal = target ?? standard.homeThreshold
 
+  // Read straight rather than hooked: boot() resolves the account before
+  // anything mounts, and a genuine identity change reloads the page, so this
+  // cannot go stale while mounted.
+  const syncLabel = !isSyncConfigured
+    ? 'not configured'
+    : currentUserId() === LOCAL_USER_ID
+      ? 'signed out'
+      : 'on'
+
   return (
     <div className="app">
       <nav className="nav">
@@ -123,7 +134,7 @@ export function App() {
             browser, and that is worth stating where it cannot be missed. */}
         <div className="rail-foot">
           <div>LOCAL · IndexedDB</div>
-          <div>SYNC · not configured</div>
+          <div>SYNC · {syncLabel}</div>
           <div>{stats ? `${stats.readings} READINGS STORED` : 'NO READINGS YET'}</div>
         </div>
       </nav>
