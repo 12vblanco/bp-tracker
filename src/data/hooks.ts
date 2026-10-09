@@ -1,9 +1,11 @@
+import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import type { BP, Session } from '../domain/types'
 import type { GuidelineStandard } from '../domain/standards'
 import { getStandard } from '../domain/standards'
 import { listSessions, readProfile, saveProfile, type ProfilePatch } from './repository'
 import type { ProfileRecord } from './db'
+import { currentAccount, onAccountChange, type Account } from './auth'
 
 /**
  * React's view of the repository. Dexie's live queries re-run whenever a table
@@ -44,4 +46,31 @@ export function useProfile(): ProfileView {
       await saveProfile(patch)
     },
   }
+}
+
+/**
+ * The signed-in account, or null.
+ *
+ * `undefined` while it is still being resolved, so the Settings screen can
+ * avoid flashing a sign-in form at someone who is already signed in.
+ */
+export function useAccount(): Account | null | undefined {
+  const [account, setAccount] = useState<Account | null | undefined>(undefined)
+
+  useEffect(() => {
+    let live = true
+    const load = () => {
+      void currentAccount().then((next) => {
+        if (live) setAccount(next)
+      })
+    }
+    load()
+    const stop = onAccountChange(load)
+    return () => {
+      live = false
+      stop()
+    }
+  }, [])
+
+  return account
 }

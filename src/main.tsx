@@ -5,20 +5,34 @@ import './index.css'
 import { App } from './App'
 import { openDatabase, LOCAL_USER_ID } from './data/db'
 import { ensureProfile } from './data/repository'
+import { currentAccount, onAccountChange } from './data/auth'
+import { adoptLocalHistory, syncNow } from './data/sync'
 
-const root = document.getElementById('root')
-if (!root) throw new Error('Missing #root')
+/**
+ * Boot order matters and is load-bearing.
+ *
+ * The session is resolved before the database opens, because which database to
+ * open depends on who is signed in. Then the profile is created, because Dexie
+ * runs live queries in read-only transactions and would throw on a write — so
+ * no component can be allowed to be the first to need a profile row.
+ *
+ * Only then does anything render. Nothing here is moved into a hook: every
+ * screen is written on the assumption that a store and a profile already exist.
+ */
+async function boot() {
+  const root = document.getElementById('root')
+  if (!root) throw new Error('Missing #root')
 
-// Opened and seeded before the first render, so no component has to guard
-// against a missing database or a missing profile row. The profile has to be
-// created here rather than lazily in a hook: Dexie's live queries run in
-// read-only transactions and throw on a write.
-//
-// Phase 2 replaces the fixed id with the signed-in user's, which swaps the
-// whole store rather than filtering it.
-openDatabase(LOCAL_USER_ID)
+  const account = await currentAccount()
+  const userId = account?.userId ?? LOCAL_USER_ID
 
-void ensureProfile().then(() => {
+  openDatabase(userId)
+  await ensureProfile()
+
+  // Signing in opens a fresh, empty store. This carries a pre-account history
+  // across, and runs once per account.
+  if (account) await adoptLocalHistory(account.userId)
+
   createRoot(root).render(
     <StrictMode>
       <BrowserRouter>
@@ -26,4 +40,18 @@ void ensureProfile().then(() => {
       </BrowserRouter>
     </StrictMode>,
   )
-})
+
+  // After the first paint, never before it. A dead connection must cost nothing
+  // but a late sync, and a failure here is not the user's problem to see.
+  if (account) void syncNow().catch(() => {})
+
+  // Signing in or out changes which database is the right one, and that is
+  // decided in boot(). Reloading is how that decision gets made again — only
+  // on a genuine identity change, or the initial session event would loop.
+  onAccountChange(async () => {
+    const next = await currentAccount()
+    if ((next?.userId ?? LOCAL_USER_ID) !== userId) location.reload()
+  })
+}
+
+void boot()

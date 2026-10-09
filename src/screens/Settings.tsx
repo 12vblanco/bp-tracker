@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { STANDARD_LIST } from '../domain/standards'
 import type { StandardId } from '../domain/standards'
-import { useProfile, useSessions } from '../data/hooks'
+import { useAccount, useProfile, useSessions } from '../data/hooks'
 import { exportAll, importBackup, type ImportMode } from '../data/repository'
 import { parseBackup, RestoreError } from '../data/restore'
+import { sendMagicLink, signOut } from '../data/auth'
+import { syncNow } from '../data/sync'
+import { isSyncConfigured } from '../data/supabase'
 import { downloadFile, sessionsToCsv } from '../data/export'
 import { deleteDatabaseFor, LOCAL_USER_ID } from '../data/db'
 import { seedDemoData } from '../data/seed'
@@ -11,12 +14,16 @@ import { seedDemoData } from '../data/seed'
 export function Settings() {
   const { profile, standard, save } = useProfile()
   const sessions = useSessions()
+  const account = useAccount()
 
   const [targetSystolic, setTargetSystolic] = useState('')
   const [targetDiastolic, setTargetDiastolic] = useState('')
   const [newTag, setNewTag] = useState('')
   const [busy, setBusy] = useState(false)
   const [restoreNote, setRestoreNote] = useState<string | null>(null)
+  const [email, setEmail] = useState('')
+  const [accountNote, setAccountNote] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   // Which button opened the picker. State would not be read back in time:
   // the dialog's onChange fires outside React's update for the click.
@@ -51,6 +58,33 @@ export function Settings() {
     if (tag === '' || profile!.tags.includes(tag)) return
     await save({ tags: [...profile!.tags, tag] })
     setNewTag('')
+  }
+
+  async function requestLink() {
+    const address = email.trim()
+    if (address === '') return
+    setAccountNote(null)
+    try {
+      await sendMagicLink(address)
+      setAccountNote(`Sign-in link sent to ${address}. Open it on this device.`)
+    } catch (error) {
+      setAccountNote(error instanceof Error ? error.message : 'Could not send the link.')
+    }
+  }
+
+  async function runSync() {
+    setSyncing(true)
+    setAccountNote(null)
+    try {
+      const report = await syncNow()
+      setAccountNote(
+        report.ran ? `Sent ${report.pushed}, received ${report.pulled}.` : 'Nothing to sync.',
+      )
+    } catch (error) {
+      setAccountNote(error instanceof Error ? error.message : 'Sync failed.')
+    } finally {
+      setSyncing(false)
+    }
   }
 
   async function restore(file: File, mode: ImportMode) {
@@ -205,6 +239,57 @@ export function Settings() {
           carry it keep it.
         </p>
       </section>
+
+      {isSyncConfigured && (
+        <section className="card stack">
+          <div className="card-title">Backup and devices</div>
+          {account === undefined ? (
+            <p className="faint">Checking…</p>
+          ) : account ? (
+            <>
+              <p className="faint">
+                Signed in as <strong>{account.email ?? account.userId}</strong>. Readings sync
+                in the background; this device stays the one you read from.
+              </p>
+              <button className="btn btn-secondary" disabled={syncing} onClick={runSync}>
+                {syncing ? 'Syncing…' : 'Sync now'}
+              </button>
+              <button className="btn btn-secondary" onClick={() => void signOut()}>
+                Sign out
+              </button>
+              <p className="faint">
+                Signing out leaves every reading on this device. It does not delete anything.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="faint">
+                Sign in to back your readings up and log on more than one device. The app works
+                without an account — this adds a copy, it does not gate anything.
+              </p>
+              <div className="row">
+                <input
+                  type="email"
+                  value={email}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void requestLink()
+                  }}
+                />
+                <button className="btn btn-secondary" onClick={requestLink}>
+                  Send link
+                </button>
+              </div>
+              <p className="faint">
+                We email a one-time link. There is no password to choose or forget.
+              </p>
+            </>
+          )}
+          {accountNote && <p className="faint">{accountNote}</p>}
+        </section>
+      )}
 
       <section className="card stack">
         <div className="card-title">Your data</div>
