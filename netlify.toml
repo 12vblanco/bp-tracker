@@ -2,6 +2,12 @@
   command = "npm run build"
   publish = "dist"
 
+# Pinned because vite declares engines ^20.19.0 || >=22.12.0, and inheriting
+# whatever Netlify defaults to is how a build that passes locally fails on the
+# first deploy. Matches the version this was developed against.
+[build.environment]
+  NODE_VERSION = "22"
+
 # react-router owns the paths, so every unknown one serves the shell rather than
 # a 404. The edge function in netlify/edge-functions/auth.ts gates /* whichever
 # side of this rule the request is on.
