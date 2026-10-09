@@ -1,0 +1,66 @@
+#!/bin/sh
+#
+# Blocks secrets and health data from ever entering a commit.
+#
+# Tracked in the repo rather than left in .git/hooks so it survives a clone.
+# Enable with:  git config core.hooksPath .githooks
+#
+# Scans staged content, not the working tree: what is about to be committed is
+# the only thing that matters, and a file can be clean on disk after being
+# staged dirty.
+
+fail() {
+  echo "pre-commit: BLOCKED — $1" >&2
+  echo "  file: $2" >&2
+  exit 1
+}
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+for file in $staged; do
+  case "$file" in
+    # The example file carries no values, by design.
+    .env.example) continue ;;
+    # Integrity hashes look exactly like secrets and are not.
+    package-lock.json) continue ;;
+    # The hook's own patterns would match themselves.
+    .githooks/pre-commit) continue ;;
+  esac
+
+  case "$file" in
+    .env|.env.*) fail "an environment file holds real values and must stay local" "$file" ;;
+    *.pem|*.key|*.p12|*.pfx|*.keystore|*.jks)
+      fail "this looks like a private key or certificate" "$file" ;;
+    bp-tracker-backup-*.json|bp-tracker-all-*.csv|*.bp-backup.json)
+      fail "this is exported health data — readings must never reach a remote" "$file" ;;
+  esac
+
+  # Only scan text. A binary blob would produce noise, not findings.
+  git show ":$file" 2>/dev/null | grep -Iq . || continue
+  content=$(git show ":$file" 2>/dev/null)
+
+  # A JWT. Both Supabase keys are JWTs, and service_role bypasses RLS entirely,
+  # so neither belongs in a tracked file even though anon is safe in a bundle.
+  echo "$content" | grep -qE 'eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}' &&
+    fail "a JWT (a Supabase key looks like this)" "$file"
+
+  echo "$content" | grep -qE 'BEGIN [A-Z ]*PRIVATE KEY' &&
+    fail "a PEM private key block" "$file"
+
+  echo "$content" | grep -qE 'AKIA[0-9A-Z]{16}' &&
+    fail "an AWS access key id" "$file"
+
+  echo "$content" | grep -qE '(ghp|gho|ghs|ghu)_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}' &&
+    fail "a GitHub token" "$file"
+
+  echo "$content" | grep -qE 'sk-[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}' &&
+    fail "an API token" "$file"
+
+  # An assignment with a long literal on the right. Catches the shape of a
+  # pasted key that none of the vendor patterns above happen to know.
+  echo "$content" | grep -qE '(SECRET|PASSWORD|PRIVATE_KEY|SERVICE_ROLE|ACCESS_TOKEN|API_KEY)[A-Z_]*["'"'"']?\s*[:=]\s*["'"'"'][A-Za-z0-9/+_-]{16,}' &&
+    fail "a secret assigned a real-looking value" "$file"
+done
+
+exit 0

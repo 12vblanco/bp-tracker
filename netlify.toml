@@ -1,0 +1,11 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# react-router owns the paths, so every unknown one serves the shell rather than
+# a 404. The edge function in netlify/edge-functions/auth.ts gates /* whichever
+# side of this rule the request is on.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
