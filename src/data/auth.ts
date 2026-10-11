@@ -56,6 +56,24 @@ export async function ensureSignedIn(): Promise<void> {
   if (error) console.warn('Auto sign-in failed:', error.message)
 }
 
+/** Email and password sign-in. Throws with the provider's message on failure. */
+export async function signInWithPassword(email: string, password: string): Promise<void> {
+  const { error } = await supabase().auth.signInWithPassword({ email, password })
+  if (error) throw error
+}
+
+/**
+ * Sets or changes the password on the signed-in account.
+ *
+ * Here rather than only in the Supabase dashboard because an account created by
+ * magic link has no password at all, and without one there is nothing for the
+ * sign-in form above to accept.
+ */
+export async function updatePassword(password: string): Promise<void> {
+  const { error } = await supabase().auth.updateUser({ password })
+  if (error) throw error
+}
+
 export async function sendMagicLink(email: string): Promise<void> {
   const { error } = await supabase().auth.signInWithOtp({
     email,

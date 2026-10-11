@@ -4,7 +4,7 @@ import type { StandardId } from '../domain/standards'
 import { useAccount, useProfile, useSessions } from '../data/hooks'
 import { exportAll, importBackup, type ImportMode } from '../data/repository'
 import { parseBackup, RestoreError } from '../data/restore'
-import { sendMagicLink, signOut } from '../data/auth'
+import { signOut, sendMagicLink, signInWithPassword, updatePassword } from '../data/auth'
 import { syncNow } from '../data/sync'
 import { isSyncConfigured } from '../data/supabase'
 import { downloadFile, sessionsToCsv } from '../data/export'
@@ -22,6 +22,9 @@ export function Settings() {
   const [busy, setBusy] = useState(false)
   const [restoreNote, setRestoreNote] = useState<string | null>(null)
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [authBusy, setAuthBusy] = useState(false)
   const [accountNote, setAccountNote] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -58,6 +61,38 @@ export function Settings() {
     if (tag === '' || profile!.tags.includes(tag)) return
     await save({ tags: [...profile!.tags, tag] })
     setNewTag('')
+  }
+
+  async function signIn() {
+    const address = email.trim()
+    if (address === '' || password === '') return
+    setAuthBusy(true)
+    setAccountNote(null)
+    try {
+      await signInWithPassword(address, password)
+      setPassword('')
+      // No note on success: onAccountChange reloads, and boot() decides which
+      // database to open from the new session.
+    } catch (error) {
+      setAccountNote(error instanceof Error ? error.message : 'Could not sign in.')
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  async function savePassword() {
+    if (newPassword === '') return
+    setAuthBusy(true)
+    setAccountNote(null)
+    try {
+      await updatePassword(newPassword)
+      setNewPassword('')
+      setAccountNote('Password saved. You can use it to sign in on your other devices.')
+    } catch (error) {
+      setAccountNote(error instanceof Error ? error.message : 'Could not save the password.')
+    } finally {
+      setAuthBusy(false)
+    }
   }
 
   async function requestLink() {
@@ -254,6 +289,24 @@ export function Settings() {
               <button className="btn btn-secondary" disabled={syncing} onClick={runSync}>
                 {syncing ? 'Syncing…' : 'Sync now'}
               </button>
+              <div className="row">
+                <input
+                  type="password"
+                  value={newPassword}
+                  placeholder="Set a password"
+                  autoComplete="new-password"
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void savePassword()
+                  }}
+                />
+                <button className="btn btn-secondary" disabled={authBusy} onClick={savePassword}>
+                  Save
+                </button>
+              </div>
+              <p className="faint">
+                A password lets you sign in on another device without waiting for an email.
+              </p>
               <button className="btn btn-secondary" onClick={() => void signOut()}>
                 Sign out
               </button>
@@ -274,17 +327,29 @@ export function Settings() {
                   placeholder="you@example.com"
                   autoComplete="email"
                   onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
+              <div className="row">
+                <input
+                  type="password"
+                  value={password}
+                  placeholder="Password"
+                  autoComplete="current-password"
+                  onChange={(e) => setPassword(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') void requestLink()
+                    if (e.key === 'Enter') void signIn()
                   }}
                 />
-                <button className="btn btn-secondary" onClick={requestLink}>
-                  Send link
+                <button className="btn" disabled={authBusy} onClick={signIn}>
+                  {authBusy ? 'Signing in…' : 'Sign in'}
                 </button>
               </div>
               <p className="faint">
-                We email a one-time link. There is no password to choose or forget.
+                No password yet? Send yourself a link, then set one below once you are in.
               </p>
+              <button className="btn btn-secondary" disabled={authBusy} onClick={requestLink}>
+                Email me a sign-in link
+              </button>
             </>
           )}
           {accountNote && <p className="faint">{accountNote}</p>}
