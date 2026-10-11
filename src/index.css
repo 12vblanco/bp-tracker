@@ -747,6 +747,10 @@ textarea {
   color: var(--accent-text);
   font-weight: 620;
   font-size: 0.9375rem;
+  /* In a .row the input takes the free space, so a button must not be squeezed
+     until its label wraps. */
+  flex: none;
+  white-space: nowrap;
 }
 
 .btn:disabled {
@@ -921,6 +925,13 @@ tbody tr:last-child td {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+/* min-width:0 so a long placeholder cannot set the input's floor and push the
+   button out of the row. */
+.row input {
+  flex: 1;
+  min-width: 0;
 }
 
 .row-between {
