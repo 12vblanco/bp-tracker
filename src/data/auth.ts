@@ -22,6 +22,40 @@ export async function currentAccount(): Promise<Account | null> {
   return user ? { userId: user.id, email: user.email ?? null } : null
 }
 
+const AUTO_EMAIL = import.meta.env.VITE_BP_EMAIL ?? ''
+const AUTO_PASSWORD = import.meta.env.VITE_BP_PASSWORD ?? ''
+
+export const hasAutoSignIn = AUTO_EMAIL !== '' && AUTO_PASSWORD !== ''
+
+/**
+ * Signs the one user in without asking, when credentials are configured.
+ *
+ * SINGLE USER ONLY. The password ships in the client bundle, so the Netlify
+ * basic-auth gate is the only thing keeping it private — and that edge function
+ * calls itself a doormat, not a lock. The moment a second person has an
+ * account, delete this and go back to the magic link, or one bundle hands over
+ * the other person's readings.
+ *
+ * Never throws and never blocks boot: sync is an addition to a local-first app,
+ * never a precondition for it. A failure leaves the app signed out and working.
+ */
+export async function ensureSignedIn(): Promise<void> {
+  if (!isSyncConfigured || !hasAutoSignIn) return
+  // getSession reads localStorage and is cheap; the sign-in below is a round
+  // trip, so it is skipped offline rather than stalling the first paint.
+  const { data } = await supabase().auth.getSession()
+  if (data.session) return
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return
+
+  const { error } = await supabase().auth.signInWithPassword({
+    email: AUTO_EMAIL,
+    password: AUTO_PASSWORD,
+  })
+  // Swallowed on purpose. The footer reports "signed out", which is the honest
+  // state, and the magic link still works.
+  if (error) console.warn('Auto sign-in failed:', error.message)
+}
+
 export async function sendMagicLink(email: string): Promise<void> {
   const { error } = await supabase().auth.signInWithOtp({
     email,

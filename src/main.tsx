@@ -5,7 +5,7 @@ import './index.css'
 import { App } from './App'
 import { openDatabase, LOCAL_USER_ID } from './data/db'
 import { ensureProfile } from './data/repository'
-import { currentAccount, onAccountChange } from './data/auth'
+import { currentAccount, ensureSignedIn, onAccountChange } from './data/auth'
 import { adoptLocalHistory, startAutoSync, syncNow } from './data/sync'
 
 /**
@@ -23,6 +23,9 @@ async function boot() {
   const root = document.getElementById('root')
   if (!root) throw new Error('Missing #root')
 
+  // Before the session is read, so a configured single-user install is signed
+  // in by the time the database name is chosen.
+  await ensureSignedIn()
   const account = await currentAccount()
   const userId = account?.userId ?? LOCAL_USER_ID
 
